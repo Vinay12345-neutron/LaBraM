@@ -17,6 +17,7 @@ import torch
 import torch.backends.cudnn as cudnn
 import json
 import os
+import re
 
 from pathlib import Path
 from collections import OrderedDict
@@ -25,6 +26,7 @@ from timm.models import create_model
 from timm.loss import LabelSmoothingCrossEntropy, SoftTargetCrossEntropy
 from timm.utils import ModelEma
 from optim_factory import create_optimizer, get_parameter_groups, LayerDecayValueAssigner
+from data_processor.dataset import ShockDataset
 
 from engine_for_finetuning import train_one_epoch, evaluate
 from utils import NativeScalerWithGradNormCount as NativeScaler
@@ -36,6 +38,8 @@ def get_args():
     parser = argparse.ArgumentParser('LaBraM fine-tuning and evaluation script for EEG classification', add_help=False)
     parser.add_argument('--batch_size', default=64, type=int)
     parser.add_argument('--epochs', default=30, type=int)
+    parser.add_argument('--cv_folds',type=int,default=1)
+    parser.add_argument('--boredom_split',type=str,default='')
     parser.add_argument('--update_freq', default=1, type=int)
     parser.add_argument('--save_ckpt_freq', default=5, type=int)
 
@@ -207,26 +211,120 @@ def get_models(args):
         qkv_bias=args.qkv_bias,
     )
 
+    # Ensure model exposes a patch_size attribute required by the training engine.
+    # Try to infer from the model name (e.g. labram_base_patch200_200) or fall back to args.patch_size or 200.
+    m = re.search(r'patch(\d+)', args.model)
+    if m:
+        try:
+            patch_size = int(m.group(1))
+        except Exception:
+            patch_size = getattr(args, 'patch_size', 200)
+    else:
+        patch_size = getattr(args, 'patch_size', 200)
+    setattr(model, 'patch_size', patch_size)
+
     return model
 
 
 def get_dataset(args):
     if args.dataset == 'TUAB':
         train_dataset, test_dataset, val_dataset = utils.prepare_TUAB_dataset("path/to/TUAB")
-        ch_names = ['EEG FP1', 'EEG FP2-REF', 'EEG F3-REF', 'EEG F4-REF', 'EEG C3-REF', 'EEG C4-REF', 'EEG P3-REF', 'EEG P4-REF', 'EEG O1-REF', 'EEG O2-REF', 'EEG F7-REF', \
+        ch_names = ['EEG FP1', 'EEG FP2-REF', 'EEG F3-REF', 'EEG F4-REF', 'EEG C3-REF', 'EEG C4-REF', 'EEG P3-REF', 'EEG P4-REF', 'EEG O1-REF', 'EEG O2-REF', 'EEG F7-REF',
                     'EEG F8-REF', 'EEG T3-REF', 'EEG T4-REF', 'EEG T5-REF', 'EEG T6-REF', 'EEG A1-REF', 'EEG A2-REF', 'EEG FZ-REF', 'EEG CZ-REF', 'EEG PZ-REF', 'EEG T1-REF', 'EEG T2-REF']
         ch_names = [name.split(' ')[-1].split('-')[0] for name in ch_names]
         args.nb_classes = 1
         metrics = ["pr_auc", "roc_auc", "accuracy", "balanced_accuracy"]
-    elif args.dataset == 'TUEV':
-        train_dataset, test_dataset, val_dataset = utils.prepare_TUEV_dataset("path/to/TUEV")
-        ch_names = ['EEG FP1-REF', 'EEG FP2-REF', 'EEG F3-REF', 'EEG F4-REF', 'EEG C3-REF', 'EEG C4-REF', 'EEG P3-REF', 'EEG P4-REF', 'EEG O1-REF', 'EEG O2-REF', 'EEG F7-REF', \
-                    'EEG F8-REF', 'EEG T3-REF', 'EEG T4-REF', 'EEG T5-REF', 'EEG T6-REF', 'EEG A1-REF', 'EEG A2-REF', 'EEG FZ-REF', 'EEG CZ-REF', 'EEG PZ-REF', 'EEG T1-REF', 'EEG T2-REF']
-        ch_names = [name.split(' ')[-1].split('-')[0] for name in ch_names]
-        args.nb_classes = 6
-        metrics = ["accuracy", "balanced_accuracy", "cohen_kappa", "f1_weighted"]
-    return train_dataset, test_dataset, val_dataset, ch_names, metrics
+        return train_dataset, val_dataset, test_dataset, ch_names, metrics
 
+    elif args.dataset == 'BOREDOM':
+        import json
+        from pathlib import Path
+        import numpy as np
+        import bisect
+
+        def make_labeled_dataset(file_label_list):
+            from pathlib import Path
+            import bisect
+            import torch
+
+            # 1. Build file → label mapping
+            file_to_label = {
+            Path(x["file"]).resolve(): int(x["label"])
+            for x in file_label_list
+            }
+
+            # 2. Sort files EXACTLY once (same order dataset will use)
+            files = sorted(file_to_label.keys())
+            labels = [file_to_label[f] for f in files]
+
+    # 3. Create base dataset
+            base_ds = ShockDataset(files, window_size=512, stride_size=512)
+
+    # 4. Build sample → file index map
+            idxes = getattr(base_ds, "_ShockDataset__dataset_idxes")
+            file_idx_by_sample = [
+                bisect.bisect(idxes, s_idx) - 1
+                for s_idx in range(len(base_ds))
+            ]
+
+            class LabeledDataset(torch.utils.data.Dataset):
+                def __init__(self, base_ds, labels, file_idx_by_sample):
+                    self.base = base_ds
+                    self.labels = labels
+                    self.file_idx_by_sample = file_idx_by_sample
+
+                def __len__(self):
+                    return len(self.base)
+
+                def __getitem__(self, idx):
+                    sample = self.base[idx]
+                    file_idx = self.file_idx_by_sample[idx]
+                    return sample, self.labels[file_idx], int(file_idx)
+
+                def get_ch_names(self):
+                    return self.base.get_ch_names()
+
+            return LabeledDataset(base_ds, labels, file_idx_by_sample)
+
+
+        if args.boredom_split:
+            # Load explicit split JSON (train/val/test lists of {"file":..., "label":...})
+            with open(args.boredom_split, "r") as f:
+                split = json.load(f)
+            train_dataset = make_labeled_dataset(split["train"])
+            val_dataset = make_labeled_dataset(split["val"])
+            test_dataset = make_labeled_dataset(split["test"])
+            # ch_names can be provided in JSON or read from first file
+            if "ch_names" in split:
+                ch_names = [c.upper() for c in split["ch_names"]]
+            else:
+                ch_names = [c.decode() if isinstance(c, bytes) else c for c in train_dataset.get_ch_names()]
+                ch_names = [c.upper() for c in ch_names]
+            args.nb_classes = 1
+            metrics = ["pr_auc", "roc_auc", "accuracy", "balanced_accuracy"]
+            return train_dataset, val_dataset, test_dataset, ch_names, metrics
+
+        # legacy: build a simple file-level 80/10/10 split if no JSON provided
+        boredom_files = sorted([str(p) for p in Path("boredom_hdf5").glob("*.h5")])
+        neutral_files = sorted([str(p) for p in Path("neutral_hdf5").glob("*.h5")])
+        file_label_pairs = [(p, 1) for p in boredom_files] + [(p, 0) for p in neutral_files]
+        rng = np.random.RandomState(12345)
+        rng.shuffle(file_label_pairs)
+        n = len(file_label_pairs)
+        train_pairs = file_label_pairs[:int(0.8 * n)]
+        val_pairs = file_label_pairs[int(0.8 * n):int(0.9 * n)]
+        test_pairs = file_label_pairs[int(0.9 * n):]
+
+        train_dataset = make_labeled_dataset([{"file": p, "label": l} for p, l in train_pairs])
+        val_dataset = make_labeled_dataset([{"file": p, "label": l} for p, l in val_pairs])
+        test_dataset = make_labeled_dataset([{"file": p, "label": l} for p, l in test_pairs])
+
+        # get ch names from first file
+        ch_names = [c.decode() if isinstance(c, bytes) else c for c in train_dataset.get_ch_names()]
+        ch_names = [c.upper() for c in ch_names]
+        args.nb_classes = 1
+        metrics = ["pr_auc", "roc_auc", "accuracy", "balanced_accuracy"]
+        return train_dataset, val_dataset, test_dataset, ch_names, metrics
 
 def main(args, ds_init):
     utils.init_distributed_mode(args)
@@ -250,6 +348,9 @@ def main(args, ds_init):
     # ch_names: list of strings, channel names of the dataset. It should be in capital letters.
     # metrics: list of strings, the metrics you want to use. We utilize PyHealth to implement it.
     dataset_train, dataset_test, dataset_val, ch_names, metrics = get_dataset(args)
+    # =========================
+
+
 
     if args.disable_eval_during_finetuning:
         dataset_val = None
@@ -425,6 +526,8 @@ def main(args, ds_init):
     else:
         if args.distributed:
             model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[args.gpu], find_unused_parameters=True)
+            model.patch_size = model.module.patch_size
+
             model_without_ddp = model.module
 
         optimizer = create_optimizer(
@@ -464,7 +567,7 @@ def main(args, ds_init):
             test_stats = evaluate(data_loader, model, device, header='Test:', ch_names=ch_names, metrics=metrics, is_binary=(args.nb_classes == 1))
             accuracy.append(test_stats['accuracy'])
             balanced_accuracy.append(test_stats['balanced_accuracy'])
-        print(f"======Accuracy: {np.mean(accuracy)} {np.std(accuracy)}, balanced accuracy: {np.mean(balanced_accuracy)} {np.std(balanced_accuracy)}")
+        print(f"======Accuracy: {np.mean(accuracy) * 100:.2f}% ± {np.std(accuracy) * 100:.2f}%, balanced accuracy: {np.mean(balanced_accuracy) * 100:.2f}% ± {np.std(balanced_accuracy) * 100:.2f}%")
         exit(0)
 
     print(f"Start training for {args.epochs} epochs")
@@ -492,9 +595,22 @@ def main(args, ds_init):
             
         if data_loader_val is not None:
             val_stats = evaluate(data_loader_val, model, device, header='Val:', ch_names=ch_names, metrics=metrics, is_binary=args.nb_classes == 1)
-            print(f"Accuracy of the network on the {len(dataset_val)} val EEG: {val_stats['accuracy']:.2f}%")
+            print(
+                f"VAL (FILE) | acc={val_stats['accuracy']:.4f} | "
+                f"bal_acc={val_stats['balanced_accuracy']:.4f} | "
+                f"roc_auc={val_stats['roc_auc']:.4f} | "
+                f"pr_auc={val_stats['pr_auc']:.4f}"
+            )
+
             test_stats = evaluate(data_loader_test, model, device, header='Test:', ch_names=ch_names, metrics=metrics, is_binary=args.nb_classes == 1)
-            print(f"Accuracy of the network on the {len(dataset_test)} test EEG: {test_stats['accuracy']:.2f}%")
+            print(
+                f"TEST (FILE) | acc={test_stats['accuracy']:.4f} | "
+                f"bal_acc={test_stats['balanced_accuracy']:.4f} | "
+                f"roc_auc={test_stats['roc_auc']:.4f} | "
+                f"pr_auc={test_stats['pr_auc']:.4f}"
+            )
+
+
             
             if max_accuracy < val_stats["accuracy"]:
                 max_accuracy = val_stats["accuracy"]
@@ -504,7 +620,7 @@ def main(args, ds_init):
                         loss_scaler=loss_scaler, epoch="best", model_ema=model_ema)
                 max_accuracy_test = test_stats["accuracy"]
 
-            print(f'Max accuracy val: {max_accuracy:.2f}%, max accuracy test: {max_accuracy_test:.2f}%')
+            print(f"Accuracy of the network on the {len(dataset_test)} test EEG: {test_stats['accuracy'] * 100:.2f}%")
             if log_writer is not None:
                 for key, value in val_stats.items():
                     if key == 'accuracy':

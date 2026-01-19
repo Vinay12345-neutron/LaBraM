@@ -1,5 +1,9 @@
 # LaBraM
 
+```
+python run_boredom_cv.py
+```
+
 Official implementation of our ICLR 2024 paper:
 [**Large Brain Model for Learning Generic Representations with Tremendous EEG Data in BCI**](https://openreview.net/forum?id=QzTpTRVtrP)
 

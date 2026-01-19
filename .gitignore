@@ -1,0 +1,10 @@
+Boredom/
+__pycache__/
+boredom_hdf5/
+boredom_hdf5_norm/
+Neutral/
+neutral_hdf5/
+neutral_hdf5_norm/
+*.json
+cuda_11.8.0_520.61.05_linux.run
+miniconda.sh

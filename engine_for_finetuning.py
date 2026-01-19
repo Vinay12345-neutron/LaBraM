@@ -11,12 +11,13 @@ import math
 import sys
 from typing import Iterable, Optional
 import torch
+import numpy as np
 from timm.utils import ModelEma
 import utils
 from einops import rearrange
 
-def train_class_batch(model, samples, target, criterion, ch_names):
-    outputs = model(samples, ch_names)
+def train_class_batch(model, samples, target, criterion, input_chans):
+    outputs = model(samples, input_chans=input_chans)
     loss = criterion(outputs, target)
     return loss, outputs
 
@@ -33,11 +34,11 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
                     start_steps=None, lr_schedule_values=None, wd_schedule_values=None,
                     num_training_steps_per_epoch=None, update_freq=None, ch_names=None, is_binary=True):
     input_chans = None
-    if ch_names is not None:
-        input_chans = utils.get_input_chans(ch_names)
+    
     model.train(True)
     metric_logger = utils.MetricLogger(delimiter="  ")
     metric_logger.add_meter('lr', utils.SmoothedValue(window_size=1, fmt='{value:.6f}'))
+    metric_logger.add_meter('window_acc', utils.SmoothedValue(window_size=1, fmt='{value:.6f}'))
     metric_logger.add_meter('min_lr', utils.SmoothedValue(window_size=1, fmt='{value:.6f}'))
     header = 'Epoch: [{}]'.format(epoch)
     print_freq = 10
@@ -48,7 +49,13 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
     else:
         optimizer.zero_grad()
 
-    for data_iter_step, (samples, targets) in enumerate(metric_logger.log_every(data_loader, print_freq, header)):
+    for data_iter_step, batch in enumerate(metric_logger.log_every(data_loader, print_freq, header)):
+        # support datasets that return (samples, targets) or (samples, targets, file_idx)
+        if isinstance(batch, (list, tuple)) and len(batch) == 2:
+            samples, targets = batch
+            file_idx_batch = None
+        else:
+            samples, targets, file_idx_batch = batch
         step = data_iter_step // update_freq
         if step >= num_training_steps_per_epoch:
             continue
@@ -61,8 +68,25 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
                 if wd_schedule_values is not None and param_group["weight_decay"] > 0:
                     param_group["weight_decay"] = wd_schedule_values[it]
 
+        # After loading samples
+        samples = torch.nan_to_num(samples, nan=0.0, posinf=0.0, neginf=0.0)
+
         samples = samples.float().to(device, non_blocking=True) / 100
-        samples = rearrange(samples, 'B N (A T) -> B N A T', T=200)
+        time_len = samples.shape[-1]
+        patch_size = getattr(model, "patch_size", None)
+        if patch_size is None:
+            raise RuntimeError("Model missing attribute 'patch_size'")
+
+        if time_len == patch_size:
+            samples = rearrange(samples, 'B N (A T) -> B N A T', T=patch_size)
+        elif time_len == 512 and patch_size == 200:
+            p1 = samples[:, :, 0:200]
+            p2 = samples[:, :, 156:356]
+            p3 = samples[:, :, 312:512]
+            samples = torch.cat([p1, p2, p3], dim=2)   # shape B, N, 600
+            samples = rearrange(samples, 'B N (A T) -> B N A T', T=patch_size)
+        else:
+            raise ValueError(f"Unsupported input length {time_len} for patch_size {patch_size}")
         
         targets = targets.to(device, non_blocking=True)
         if is_binary:
@@ -73,9 +97,8 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
             loss, output = train_class_batch(
                 model, samples, targets, criterion, input_chans)
         else:
-            with torch.cuda.amp.autocast():
-                loss, output = train_class_batch(
-                    model, samples, targets, criterion, input_chans)
+            
+            loss, output = train_class_batch(model, samples, targets, criterion, input_chans)
 
         loss_value = loss.item()
 
@@ -116,7 +139,7 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
             class_acc = (output.max(-1)[-1] == targets.squeeze()).float().mean()
             
         metric_logger.update(loss=loss_value)
-        metric_logger.update(class_acc=class_acc)
+        metric_logger.update(window_acc=class_acc)
         metric_logger.update(loss_scale=loss_scale_value)
         min_lr = 10.
         max_lr = 0.
@@ -153,8 +176,7 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
 @torch.no_grad()
 def evaluate(data_loader, model, device, header='Test:', ch_names=None, metrics=['acc'], is_binary=True):
     input_chans = None
-    if ch_names is not None:
-        input_chans = utils.get_input_chans(ch_names)
+    
     if is_binary:
         criterion = torch.nn.BCEWithLogitsLoss()
     else:
@@ -167,22 +189,43 @@ def evaluate(data_loader, model, device, header='Test:', ch_names=None, metrics=
     model.eval()
     pred = []
     true = []
+    fileidx_list = []
+    sample_counter = 0
     for step, batch in enumerate(metric_logger.log_every(data_loader, 10, header)):
-        EEG = batch[0]
-        target = batch[-1]
+        # support (EEG, target) or (EEG, target, file_idx)
+        if isinstance(batch, (list, tuple)) and len(batch) == 2:
+            EEG, target = batch
+            file_idx_batch = None
+        else:
+            EEG, target, file_idx_batch = batch
         EEG = EEG.float().to(device, non_blocking=True) / 100
-        EEG = rearrange(EEG, 'B N (A T) -> B N A T', T=200)
+        time_len = EEG.shape[-1]
+        patch_size = getattr(model, "patch_size", None)
+        if patch_size is None:
+            raise RuntimeError("Model missing attribute 'patch_size'")
+
+        if time_len == patch_size:
+            EEG = rearrange(EEG, 'B N (A T) -> B N A T', T=patch_size)
+        elif time_len == 512 and patch_size == 200:
+            p1 = EEG[:, :, 0:200]
+            p2 = EEG[:, :, 156:356]
+            p3 = EEG[:, :, 312:512]
+            EEG = torch.cat([p1, p2, p3], dim=2)
+            EEG = rearrange(EEG, 'B N (A T) -> B N A T', T=patch_size)
+        else:
+            raise ValueError(f"Unsupported input length {time_len} for patch_size {patch_size}")
         target = target.to(device, non_blocking=True)
         if is_binary:
             target = target.float().unsqueeze(-1)
         
         # compute output
-        with torch.cuda.amp.autocast():
-            output = model(EEG, input_chans=input_chans)
-            loss = criterion(output, target)
+        output = model(EEG, input_chans=input_chans)
+        loss = criterion(output, target)
         
         if is_binary:
-            output = torch.sigmoid(output).cpu()
+            output = torch.sigmoid(output).squeeze(-1).cpu()
+            target = target.squeeze(-1).cpu()
+
         else:
             output = output.cpu()
         target = target.cpu()
@@ -190,6 +233,21 @@ def evaluate(data_loader, model, device, header='Test:', ch_names=None, metrics=
         results = utils.get_metrics(output.numpy(), target.numpy(), metrics, is_binary)
         pred.append(output)
         true.append(target)
+        # collect file indices if provided
+        if file_idx_batch is not None:
+            if isinstance(file_idx_batch, torch.Tensor):
+                fileidx_arr = file_idx_batch.cpu().numpy()
+            else:
+                fileidx_arr = np.array(file_idx_batch)
+        else:
+            # assign synthetic unique indices per window when file idx not provided
+            batch_size = EEG.shape[0]
+            fileidx_arr = np.arange(sample_counter, sample_counter + batch_size)
+            sample_counter += batch_size
+        # store per-batch file indices (or None)
+        if 'fileidx_list' not in locals():
+            fileidx_list = []
+        fileidx_list.append(fileidx_arr)
 
         batch_size = EEG.shape[0]
         metric_logger.update(loss=loss.item())
@@ -203,7 +261,42 @@ def evaluate(data_loader, model, device, header='Test:', ch_names=None, metrics=
     
     pred = torch.cat(pred, dim=0).numpy()
     true = torch.cat(true, dim=0).numpy()
+    # build file index array aligned with pred/true
+    if 'fileidx_list' in locals() and any(x is not None for x in fileidx_list):
+        fileidx_parts = []
+        for part in fileidx_list:
+            if part is None:
+                # fallback: create dummy sequential indices for this batch
+                # assume batch size equals first dim of corresponding pred slice
+                part = np.arange(pred.shape[0])
+            fileidx_parts.append(part)
+        fileidx = np.concatenate(fileidx_parts, axis=0)
+    else:
+        # fallback: treat each window as its own file
+        fileidx = np.arange(pred.shape[0])
 
-    ret = utils.get_metrics(pred, true, metrics, is_binary, 0.5)
-    ret['loss'] = metric_logger.loss.global_avg
-    return ret
+    # WINDOW-level metrics (for compatibility)
+    window_ret = utils.get_metrics(pred, true, metrics, is_binary, 0.5)
+    window_ret['loss'] = metric_logger.loss.global_avg
+
+    # FILE-level aggregation: average predicted probability per file index
+    unique_files = np.unique(fileidx)
+    file_preds = []
+    file_trues = []
+    for f in unique_files:
+        idxs = np.where(fileidx == f)[0]
+        file_pred = pred[idxs].mean(axis=0)
+        trues = np.unique(true[idxs])
+        if trues.shape[0] > 1:
+            file_true = int(np.round(trues.mean()))
+        else:
+            file_true = int(trues[0])
+        file_preds.append(file_pred)
+        file_trues.append(file_true)
+    file_preds = np.stack(file_preds, axis=0)
+    file_trues = np.array(file_trues)
+
+    file_ret = utils.get_metrics(file_preds, file_trues, metrics, is_binary, 0.5)
+    file_ret['loss'] = metric_logger.loss.global_avg
+    # return file-level metrics
+    return file_ret
