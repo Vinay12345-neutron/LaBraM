@@ -298,5 +298,32 @@ def evaluate(data_loader, model, device, header='Test:', ch_names=None, metrics=
 
     file_ret = utils.get_metrics(file_preds, file_trues, metrics, is_binary, 0.5)
     file_ret['loss'] = metric_logger.loss.global_avg
+
+    # Add confusion-matrix-based metrics for binary classification
+    if is_binary:
+        try:
+            preds_bin = (file_preds >= 0.5).astype(int)
+            trues_bin = file_trues.astype(int)
+            tp = int(((preds_bin == 1) & (trues_bin == 1)).sum())
+            tn = int(((preds_bin == 0) & (trues_bin == 0)).sum())
+            fp = int(((preds_bin == 1) & (trues_bin == 0)).sum())
+            fn = int(((preds_bin == 0) & (trues_bin == 1)).sum())
+
+            precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
+            recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+            specificity = tn / (tn + fp) if (tn + fp) > 0 else 0.0
+            f1 = (2 * precision * recall) / (precision + recall) if (precision + recall) > 0 else 0.0
+
+        except Exception:
+            precision = 0.0
+            recall = 0.0
+            specificity = 0.0
+            f1 = 0.0
+
+        file_ret['precision'] = precision
+        file_ret['recall'] = recall
+        file_ret['specificity'] = specificity
+        file_ret['f1'] = f1
+
     # return file-level metrics
     return file_ret
