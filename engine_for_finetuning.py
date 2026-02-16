@@ -296,8 +296,21 @@ def evaluate(data_loader, model, device, header='Test:', ch_names=None, metrics=
     file_preds = np.stack(file_preds, axis=0)
     file_trues = np.array(file_trues)
 
+    # Save raw predictions for threshold analysis if this is the TEST set (indicated by header)
+    if "Test" in header:
+         # Create a unique filename for this evaluation run
+         # We can't easily pass the output dir here without changing signature, 
+         # but we can try to save to a fixed location or use a global if deemed safe, 
+         # OR better, since we are inside the training loop, we might not have the path.
+         # Actually, we can return the raw preds in the dictionary and save them in the caller.
+         pass
+
     file_ret = utils.get_metrics(file_preds, file_trues, metrics, is_binary, 0.5)
     file_ret['loss'] = metric_logger.loss.global_avg
+    
+    # Store raw predictions in return dict for saving
+    file_ret['raw_preds'] = file_preds.tolist()
+    file_ret['raw_trues'] = file_trues.tolist()
 
     # Add confusion-matrix-based metrics for binary classification
     if is_binary:
