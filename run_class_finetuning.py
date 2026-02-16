@@ -595,6 +595,10 @@ def main(args, ds_init):
             
         if data_loader_val is not None:
             val_stats = evaluate(data_loader_val, model, device, header='Val:', ch_names=ch_names, metrics=metrics, is_binary=args.nb_classes == 1)
+            # Remove raw preds from val_stats to avoid bloating log
+            val_stats.pop('raw_preds', None)
+            val_stats.pop('raw_trues', None)
+            
             print(
                 f"VAL (FILE) | acc={val_stats['accuracy']:.4f} | "
                 f"bal_acc={val_stats['balanced_accuracy']:.4f} | "
@@ -603,6 +607,30 @@ def main(args, ds_init):
             )
 
             test_stats = evaluate(data_loader_test, model, device, header='Test:', ch_names=ch_names, metrics=metrics, is_binary=args.nb_classes == 1)
+            
+            # Extract and save raw predictions for threshold analysis
+            raw_preds = test_stats.pop('raw_preds', None)
+            raw_trues = test_stats.pop('raw_trues', None)
+            
+            if args.output_dir and raw_preds is not None:
+                # Ensure they are lists (they should be from engine_for_finetuning, but double check)
+                if hasattr(raw_preds, 'tolist'):
+                    raw_preds = raw_preds.tolist()
+                if hasattr(raw_trues, 'tolist'):
+                    raw_trues = raw_trues.tolist()
+
+                pred_data = {
+                    "epoch": epoch,
+                    "preds": raw_preds,
+                    "trues": raw_trues
+                }
+                # Overwrite/Append predictions file
+                try:
+                    with open(os.path.join(args.output_dir, "test_predictions.json"), "a") as f:
+                        f.write(json.dumps(pred_data) + "\n")
+                except TypeError as e:
+                    print(f"Failed to save predictions: {e}")
+
             print(
                 f"TEST (FILE) | acc={test_stats['accuracy']:.4f} | "
                 f"bal_acc={test_stats['balanced_accuracy']:.4f} | "
