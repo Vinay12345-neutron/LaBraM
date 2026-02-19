@@ -11,7 +11,7 @@ from sklearn.model_selection import GroupKFold
 
 # configuration
 BATCH = 16
-EPOCHS = 5
+EPOCHS = 2
 MODEL = "labram_base_patch200_200"
 FINETUNE = "./checkpoints/labram-base.pth"
 INPUT_SIZE = 512
