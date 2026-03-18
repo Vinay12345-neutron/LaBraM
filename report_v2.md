@@ -44,7 +44,6 @@ The training curves prove that the model converges almost immediately. Validatio
 ---
 
 ## 5. Experiment 3: Training Dynamics & Epoch Limits
-**Methodology:** To answer the professor's question about optimal stopping criteria, we trained Fold 0 for exactly 5, 10, 25, and 50 epochs.
 
 | Max Epochs | Best Epoch | Test Accuracy | Validation Loss |
 |------------|------------|---------------|-----------------|
@@ -109,12 +108,5 @@ These plots take the 768-dimensional mathematical "thought" vectors from the mod
 
 ## 9. Literature Comparison & Impact
 This binary classification benchmark sets an extremely high standard for cognitive state detection.
-
-| Study | Year | Task | Method | Subjects | Accuracy |
-|-------|------|------|--------|----------|----------|
-| SEED (Zheng & Lu) | 2015 | 3-class emotion | SVM+DE | 15 | 83.99% |
-| DEAP (Soleymani et al.) | 2012 | Valence/Arousal | SVM | 32 | ~60% |
-| LaBraM (Jiang et al.) | 2024 | Emotion (SEED)| Transformer | 15 | 88.6% |
-| **Our Project** | **2025** | **Boredom vs Neutral**| **LaBraM-FT** | **73** | **96.97% (LOSO)** |
 
 *Note: Achieving 97% unseen-subject accuracy (LOSO) on a dataset of 73 unique humans is practically state-of-the-art for binary task engagement and cognitive modeling.*
