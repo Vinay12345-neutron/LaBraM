@@ -8,3 +8,14 @@ neutral_hdf5_norm/
 *.json
 cuda_11.8.0_520.61.05_linux.run
 miniconda.sh
+
+# --- NEW ADDITIONS TO PREVENT GIT FREEZE ---
+
+# Ignore massive model checkpoints (gigabytes of data)
+*.pth
+*.pt
+
+# Ignore tensorboard and run logs
+log/
+events.out.tfevents.*
+*.log
