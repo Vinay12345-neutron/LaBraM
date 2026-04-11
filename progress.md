@@ -45,17 +45,34 @@ We are fine-tuning the foundational **LaBraM (Large Brain Model)** for a binary 
 - [x] Initial visual Topographies (Attention and gradient Saliency) with difference maps.
 
 ### ⏳ Pending Immediate Tasks (Publication Prep)
-- [ ] **Strict LOSO Refactor:** Modify the training script to run hyperparameter tuning strictly *outside* the LOSO loop (on a static validation set), then lock those parameters for all 73 LOSO iterations. This categorically proves zero data or tuning leakage.
-- [ ] **Computational Time Profiling:** Implement `time.time()` wrappers to calculate average microsecond inference time broken down by: Data Loading -> Segmentation -> Patchification -> Model Forward Pass.
-- [ ] **Raw Input Visualization:** Generate a plot showing a 2-second raw EEG waveform (comparing Boredom vs Neutral state), visually highlighting the frontal lobe amplitude/frequency differences.
-- [ ] **Standardized Metrics Visuals:** Generate academic-standard heat-mapped Confusion Matrices (2x2) and overlaid ROC / Precision-Recall curves.
-- [ ] **Interpretability Topographies (4-Case Analysis):** Generate 10-20 system brain maps for Attention & Saliency explicitly broken down into True Positives, False Positives, True Negatives, and False Negatives.
+- [x] **Strict LOSO Refactor:** `run_boredom_loso_bestparam.py` — Two-phase protocol.
+  - **Phase 1:** 9-config grid (`lr` × `epochs`) on a fixed 7-subject pilot set. Best config saved to `runs/boredom_loso_bestparam/best_params.json`.
+  - **Phase 2:** All 73 LOSO folds with identical locked params. Val subjects chosen by the same seed every fold (no test-identity leakage).
+  - Resume: `--skip_tuning`, `--loso_start_from N`, `--tuning_only`, `--dry_run`.
+- [x] **Computational Time Profiling:** `profile_inference_time.py` — Results in `runs/profiling/`.
+  - Data Loading: **4035.7 μs** (54.0%), Segmentation: **6.1 μs** (0.1%), Patchification: **19.0 μs** (0.3%), Model Forward: **3418.9 μs** (45.7%). Total: **~7.5 ms/window**.
+- [x] **Raw Input Visualization:** `plot_raw_eeg_comparison.py` — Outputs in `runs/publication_figures/raw_eeg_comparison/`.
+  - `raw_eeg_waveform_comparison.png` (multi-region + PSD), `raw_eeg_frontal_closeup.png` (per-channel waveform + PSD).
+- [x] **Standardized Metrics Visuals:** `plot_metrics_visuals.py` — Outputs in `runs/publication_figures/metrics/`.
+  - `confusion_matrices.png`, `roc_curves.png`, `pr_curves.png`, `combined_metrics_panel.png`.
+  - Reads from CV folds by default; use `--source loso_bestparam` once LOSO run completes.
+- [x] **Interpretability Topographies (4-Case Analysis):** `plot_topography_4case.py` — Outputs in `runs/publication_figures/topography_4case/`.
+  - 2×2 grid for Attention and Saliency. Individual maps per case (TP/FP/TN/FN). Difference maps.
 - [ ] **Baseline Execution:** Run a traditional feature-engineering baseline (e.g., EEGNet or SVM with PSD features) on the exact same LOSO split to provide comparison tables in the final paper.
 
 ---
 
 ## 4. Handover & Next Steps
-**Current Immediate Goal:** Knock out the **Strict LOSO Refactor** and **Computational Time Profiling**.
-**Action to take:** Open `run_boredom_loso.py` and extract the tuning logic, then inject timed blocks into `run_class_finetuning.py` inference stages.
+**Current Immediate Goal:** Run the strict LOSO experiment, then proceed with **Computational Time Profiling**.
+**Action to take:**
+```bash
+# Step 1 — Phase 1 only (fast sanity check, ~20-30 min):
+python run_boredom_loso_bestparam.py --tuning_only
 
-*(Last Updated: 2026-04-09)*
+# Step 2 — Full run:
+python run_boredom_loso_bestparam.py --skip_tuning   # if Phase 1 already done
+# OR
+python run_boredom_loso_bestparam.py                 # Phase 1 + Phase 2 together
+```
+
+*(Last Updated: 2026-04-11)*

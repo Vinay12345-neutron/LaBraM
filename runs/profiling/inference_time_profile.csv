@@ -1,0 +1,6 @@
+stage,mean_us,std_us,pct_total,notes,n_repeats,device
+Data Loading,4035.73,79.19,54.0,HDF5 open + read 61×512 window,100,cuda
+Segmentation,6.14,0.51,0.1,Slice 512-sample window from RAM buffer,100,cuda
+Patchification,19.00,0.80,0.3,Build 3×200 overlapping patches + rearrange,100,cuda
+Model Forward,3418.90,525.42,45.7,LaBraM-Base forward pass (device=cuda),100,cuda
+TOTAL,7479.78,531.35,100.0,,100,cuda
