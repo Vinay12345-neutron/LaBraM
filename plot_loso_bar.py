@@ -10,6 +10,7 @@ import json
 import matplotlib.pyplot as plt
 import numpy as np
 from pathlib import Path
+from matplotlib.ticker import MultipleLocator, AutoMinorLocator
 
 plt.rcParams['font.sans-serif'] = ['Arial', 'Helvetica', 'DejaVu Sans']
 plt.rcParams['font.family'] = 'sans-serif'
@@ -47,7 +48,18 @@ def main():
     
     ax.set_xticks(x)
     ax.set_xticklabels(subj_ids, rotation=90, fontsize=10, fontweight="bold")
+    
+    # Reduce whitespace on left and right borders
+    ax.set_xlim([-0.6, len(subj_ids) - 0.4])
     ax.set_ylim([0, 105])
+    
+    # Major and minor axis ticks configuration
+    ax.yaxis.set_major_locator(MultipleLocator(20))
+    ax.yaxis.set_minor_locator(MultipleLocator(5))
+    
+    ax.tick_params(axis='y', which='major', length=6, width=1.2, labelsize=16)
+    ax.tick_params(axis='y', which='minor', length=3.5, width=0.8)
+    ax.tick_params(axis='x', which='major', length=4, width=1.0)
     
     # Remove top and right box spines for an open, modern aesthetic
     ax.spines['top'].set_visible(False)
