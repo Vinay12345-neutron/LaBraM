@@ -19,3 +19,11 @@ miniconda.sh
 log/
 events.out.tfevents.*
 *.log
+
+# Ignore fold0 and fold1 inside runs (including subdirectories)
+runs/boredom_cv/fold0/
+runs/boredom_cv/fold1/
+runs/boredom_cv/fold2/
+runs/boredom_cv/fold3/
+runs/boredom_cv/fold4/
+
