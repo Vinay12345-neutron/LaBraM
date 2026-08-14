@@ -51,14 +51,13 @@ def plot_individual_roc(fpr, tpr, roc_auc, fold_idx, output_path):
     """Plot individual ROC curve for a single fold."""
     fig, ax = plt.subplots(figsize=(6.5, 5.5), dpi=350)
     
-    ax.plot(fpr, tpr, color="#008080", lw=3, label=f"ROC Fold {fold_idx} (AUC = {roc_auc:.4f})")
-    ax.plot([0, 1], [0, 1], color="gray", lw=2, linestyle="--", label="Random Baseline (AUC = 0.50)")
+    ax.plot(fpr, tpr, color="#008080", lw=3, label=f"Fold {fold_idx} AUC = {roc_auc:.4f}")
+    ax.plot([0, 1], [0, 1], color="#cccccc", lw=1.0, linestyle="--")
     
     ax.set_xlim([-0.02, 1.02])
     ax.set_ylim([-0.02, 1.02])
     ax.set_xlabel("False Positive Rate", fontsize=18, fontweight="bold", labelpad=10)
     ax.set_ylabel("True Positive Rate", fontsize=18, fontweight="bold", labelpad=10)
-    ax.set_title(f"Fold {fold_idx} ROC Curve", fontsize=18, fontweight="bold", pad=15)
     ax.legend(loc="lower right", fontsize=14, frameon=True)
     ax.grid(True, linestyle=":", alpha=0.6)
     
@@ -74,7 +73,7 @@ def plot_overall_roc(tprs, aucs, mean_fpr, output_path):
     # Plot individual fold ROC curves
     for i in range(len(tprs)):
         ax.plot(mean_fpr, tprs[i], color=COLORS[i % len(COLORS)], lw=1.5, alpha=0.45,
-                label=f"Fold {i} (AUC = {aucs[i]:.4f})")
+                label=f"Fold {i} AUC = {aucs[i]:.4f}")
         
     mean_tpr = np.mean(tprs, axis=0)
     mean_tpr[-1] = 1.0
@@ -83,7 +82,7 @@ def plot_overall_roc(tprs, aucs, mean_fpr, output_path):
     
     # Plot mean ROC curve
     ax.plot(mean_fpr, mean_tpr, color="#004d40", lw=3.5,
-            label=f"Mean ROC (AUC = {mean_auc:.4f} ± {std_auc:.4f})")
+            label=f"Mean ROC AUC = {mean_auc:.4f} ± {std_auc:.4f}")
     
     # Plot standard deviation shaded region
     std_tpr = np.std(tprs, axis=0)
@@ -92,14 +91,13 @@ def plot_overall_roc(tprs, aucs, mean_fpr, output_path):
     ax.fill_between(mean_fpr, tprs_lower, tprs_upper, color="#80cbc4", alpha=0.3,
                     label=r"± 1 Std. Dev.")
     
-    # Diagonal baseline
-    ax.plot([0, 1], [0, 1], color="gray", lw=2, linestyle="--", label="Random Baseline (AUC = 0.50)")
+    # Thin, light-colored diagonal baseline (excluded from legend)
+    ax.plot([0, 1], [0, 1], color="#cccccc", lw=1.0, linestyle="--")
     
     ax.set_xlim([-0.02, 1.02])
     ax.set_ylim([-0.02, 1.02])
     ax.set_xlabel("False Positive Rate", fontsize=18, fontweight="bold", labelpad=10)
     ax.set_ylabel("True Positive Rate", fontsize=18, fontweight="bold", labelpad=10)
-    ax.set_title("Overall 5-Fold ROC Curves", fontsize=18, fontweight="bold", pad=15)
     ax.legend(loc="lower right", fontsize=12, frameon=True)
     ax.grid(True, linestyle=":", alpha=0.6)
     

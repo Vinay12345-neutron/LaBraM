@@ -98,7 +98,6 @@ def plot_confusion_matrix(cm, title, output_path):
     
     ax.set_xlabel("Predicted Label", fontsize=18, labelpad=10, fontweight="bold")
     ax.set_ylabel("True Label", fontsize=18, labelpad=10, fontweight="bold")
-    ax.set_title(title, fontsize=18, fontweight="bold", pad=15)
     
     plt.tight_layout()
     plt.savefig(output_path, dpi=350, bbox_inches="tight")

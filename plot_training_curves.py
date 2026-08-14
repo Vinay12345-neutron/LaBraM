@@ -107,13 +107,12 @@ def plot_val_auc_curve(all_data, save_dir):
     
     ax.set_xlabel("Epoch", fontsize=18, fontweight="bold", labelpad=10)
     ax.set_ylabel("Validation ROC-AUC", fontsize=18, fontweight="bold", labelpad=10)
-    ax.set_title("Validation AUC vs Epochs", fontsize=18, fontweight="bold", pad=15)
     ax.legend(loc="lower right", fontsize=12, frameon=True)
     ax.grid(True, linestyle=":", alpha=0.6)
-    ax.set_ylim([0.80, 1.02])
+    ax.set_ylim([0.0, 1.05])
     
     plt.tight_layout()
-    out_path = save_dir / "curve_val_auc.png"
+    out_path = save_dir / "5fold_validation_auc_curve.png"
     plt.savefig(out_path, dpi=350, bbox_inches="tight")
     plt.close()
     print(f"Saved: {out_path}")
@@ -141,12 +140,11 @@ def plot_loss_curve(all_data, save_dir):
     
     ax.set_xlabel("Epoch", fontsize=18, fontweight="bold", labelpad=10)
     ax.set_ylabel("Loss", fontsize=18, fontweight="bold", labelpad=10)
-    ax.set_title("Training & Validation Loss", fontsize=18, fontweight="bold", pad=15)
     ax.legend(loc="upper right", fontsize=14, frameon=True)
     ax.grid(True, linestyle=":", alpha=0.6)
     
     plt.tight_layout()
-    out_path = save_dir / "curve_loss.png"
+    out_path = save_dir / "5fold_mean_train_val_loss_curve.png"
     plt.savefig(out_path, dpi=350, bbox_inches="tight")
     plt.close()
     print(f"Saved: {out_path}")
@@ -174,13 +172,12 @@ def plot_accuracy_curve(all_data, save_dir):
     
     ax.set_xlabel("Epoch", fontsize=18, fontweight="bold", labelpad=10)
     ax.set_ylabel("Accuracy", fontsize=18, fontweight="bold", labelpad=10)
-    ax.set_title("Training & Validation Accuracy", fontsize=18, fontweight="bold", pad=15)
     ax.legend(loc="lower right", fontsize=14, frameon=True)
     ax.grid(True, linestyle=":", alpha=0.6)
-    ax.set_ylim([0.50, 1.02])
+    ax.set_ylim([0.0, 1.05])
     
     plt.tight_layout()
-    out_path = save_dir / "curve_accuracy.png"
+    out_path = save_dir / "5fold_mean_train_val_accuracy_curve.png"
     plt.savefig(out_path, dpi=350, bbox_inches="tight")
     plt.close()
     print(f"Saved: {out_path}")
@@ -198,7 +195,7 @@ def plot_train_val_auc_curve(all_data, save_dir):
     mean_val_auc = np.nanmean(val_aucs, axis=0)
     std_val_auc = np.nanstd(val_aucs, axis=0)
     
-    ax.plot(ep_grid, mean_train_auc, 'o-', color="#1e88e5", lw=2.5, label="Train AUC (proxy)")
+    ax.plot(ep_grid, mean_train_auc, 'o-', color="#1e88e5", lw=2.5, label="Train AUC")
     ax.fill_between(ep_grid, mean_train_auc - std_train_auc, mean_train_auc + std_train_auc,
                     color="#90caf9", alpha=0.3)
     
@@ -208,13 +205,12 @@ def plot_train_val_auc_curve(all_data, save_dir):
     
     ax.set_xlabel("Epoch", fontsize=18, fontweight="bold", labelpad=10)
     ax.set_ylabel("ROC-AUC", fontsize=18, fontweight="bold", labelpad=10)
-    ax.set_title("Training & Validation ROC-AUC", fontsize=18, fontweight="bold", pad=15)
     ax.legend(loc="lower right", fontsize=14, frameon=True)
     ax.grid(True, linestyle=":", alpha=0.6)
-    ax.set_ylim([0.75, 1.02])
+    ax.set_ylim([0.0, 1.05])
     
     plt.tight_layout()
-    out_path = save_dir / "curve_auc.png"
+    out_path = save_dir / "5fold_mean_train_val_auc_curve.png"
     plt.savefig(out_path, dpi=350, bbox_inches="tight")
     plt.close()
     print(f"Saved: {out_path}")
@@ -234,7 +230,6 @@ def plot_fold(fold_id, data, save_dir):
         ax.plot(ep_grid, [d.get("val_loss", np.nan) for d in data], 's-', label="Val Loss", color="#fb8c00", lw=2)
     ax.set_xlabel("Epoch", fontsize=16, fontweight="bold")
     ax.set_ylabel("Loss", fontsize=16, fontweight="bold")
-    ax.set_title(f"Fold {fold_id} — Loss Curve", fontsize=16, fontweight="bold")
     ax.legend(fontsize=14)
     ax.grid(True, linestyle=":", alpha=0.6)
 
@@ -249,11 +244,10 @@ def plot_fold(fold_id, data, save_dir):
         ax.plot(ep_grid, [d.get("val_roc_auc", np.nan) for d in data], '^-', label="Val AUC", color="#43a047", lw=2)
         
     ax.set_xlabel("Epoch", fontsize=16, fontweight="bold")
-    ax.set_ylabel("Metric Score", fontsize=16, fontweight="bold")
-    ax.set_title(f"Fold {fold_id} — Accuracy & AUC", fontsize=16, fontweight="bold")
+    ax.set_ylabel("Accuracy and AUC", fontsize=16, fontweight="bold")
     ax.legend(fontsize=14)
     ax.grid(True, linestyle=":", alpha=0.6)
-    ax.set_ylim([0.5, 1.02])
+    ax.set_ylim([0.0, 1.05])
 
     plt.tight_layout()
     out_path = save_dir / f"training_curves_fold{fold_id}.png"
