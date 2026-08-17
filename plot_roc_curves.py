@@ -48,10 +48,14 @@ def load_predictions_for_fold(fold_dir):
     return trues, preds
 
 def plot_individual_roc(fpr, tpr, roc_auc, fold_idx, output_path):
-    """Plot individual ROC curve for a single fold."""
+    """Plot an individual fold ROC curve matching publication specifications."""
+    display_fold = fold_idx + 1
     fig, ax = plt.subplots(figsize=(6.5, 5.5), dpi=350)
     
-    ax.plot(fpr, tpr, color="#008080", lw=3, label=f"Fold {fold_idx} AUC = {roc_auc:.4f}")
+    # Plot ROC curve without bracket formatting
+    ax.plot(fpr, tpr, color="#1e88e5", lw=2.5, label=f"Fold {display_fold} AUC = {roc_auc:.4f}")
+    
+    # Thin, light-colored diagonal baseline (excluded from legend)
     ax.plot([0, 1], [0, 1], color="#cccccc", lw=1.0, linestyle="--")
     
     ax.set_xlim([-0.02, 1.02])
@@ -70,10 +74,11 @@ def plot_overall_roc(tprs, aucs, mean_fpr, output_path):
     """Plot aggregated ROC curves across all 5 folds with mean AUC ± std dev."""
     fig, ax = plt.subplots(figsize=(7.0, 6.0), dpi=350)
     
-    # Plot individual fold ROC curves
+    # Plot individual fold ROC curves (Fold 1 to Fold 5)
     for i in range(len(tprs)):
+        display_fold = i + 1
         ax.plot(mean_fpr, tprs[i], color=COLORS[i % len(COLORS)], lw=1.5, alpha=0.45,
-                label=f"Fold {i} AUC = {aucs[i]:.4f}")
+                label=f"Fold {display_fold} AUC = {aucs[i]:.4f}")
         
     mean_tpr = np.mean(tprs, axis=0)
     mean_tpr[-1] = 1.0
@@ -130,15 +135,16 @@ def main():
         
         all_folds_processed += 1
         
-        # Save individual fold ROC curve
-        out_path = RUNS_DIR / f"roc_curve_fold{fold_idx}.png"
+        # Save individual fold ROC curve (Fold 1 to Fold 5)
+        display_fold = fold_idx + 1
+        out_path = RUNS_DIR / f"roc_curve_fold{display_fold}.png"
         plot_individual_roc(fpr, tpr, roc_auc, fold_idx, out_path)
 
     if all_folds_processed > 0:
         # Save overall aggregated ROC curves
         out_path_total = RUNS_DIR / "roc_curve_overall.png"
         plot_overall_roc(tprs, aucs, mean_fpr, out_path_total)
-        print(f"\nSuccessfully generated {all_folds_processed} individual ROC curves and 1 overall summary ROC plot.")
+        print(f"\nSuccessfully generated {all_folds_processed} individual ROC curves (Fold 1 to Fold 5) and 1 overall summary ROC plot.")
 
 if __name__ == "__main__":
     main()

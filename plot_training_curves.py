@@ -95,8 +95,9 @@ def plot_val_auc_curve(all_data, save_dir):
     ep_grid, auc_matrix = extract_metric_matrix(all_data, "val_roc_auc")
     
     for fold_id in range(len(auc_matrix)):
+        display_fold = fold_id + 1
         ax.plot(ep_grid, auc_matrix[fold_id], color=COLORS[fold_id % len(COLORS)],
-                lw=1.5, alpha=0.45, label=f"Fold {fold_id}")
+                lw=1.5, alpha=0.45, label=f"Fold {display_fold}")
         
     mean_val_auc = np.nanmean(auc_matrix, axis=0)
     std_val_auc = np.nanstd(auc_matrix, axis=0)
@@ -250,7 +251,8 @@ def plot_fold(fold_id, data, save_dir):
     ax.set_ylim([0.0, 1.05])
 
     plt.tight_layout()
-    out_path = save_dir / f"training_curves_fold{fold_id}.png"
+    display_fold = fold_id + 1
+    out_path = save_dir / f"training_curves_fold{display_fold}.png"
     plt.savefig(out_path, dpi=350, bbox_inches="tight")
     plt.close()
     print(f"Saved: {out_path}")

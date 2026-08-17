@@ -119,15 +119,16 @@ def main():
         total_cm += cm
         all_folds_processed += 1
         
-        # Plot fold-specific matrix
-        out_path = RUNS_DIR / f"confusion_matrix_fold{fold_idx}.png"
-        plot_confusion_matrix(cm, f"Fold {fold_idx}", out_path)
+        # Plot fold-specific matrix (1-indexed: Fold 1 to Fold 5)
+        display_fold = fold_idx + 1
+        out_path = RUNS_DIR / f"confusion_matrix_fold{display_fold}.png"
+        plot_confusion_matrix(cm, f"Fold {display_fold}", out_path)
 
     if all_folds_processed > 0:
         # Plot overall 5-fold combined matrix
         out_path_total = RUNS_DIR / "confusion_matrix_overall.png"
         plot_confusion_matrix(total_cm, "Overall 5-Fold Confusion Matrix", out_path_total)
-        print(f"\nSuccessfully generated {all_folds_processed} fold matrices and 1 overall matrix.")
+        print(f"\nSuccessfully generated {all_folds_processed} fold matrices (Fold 1 to Fold 5) and 1 overall matrix.")
 
 if __name__ == "__main__":
     main()
