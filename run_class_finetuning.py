@@ -63,6 +63,10 @@ def get_args():
 
     parser.add_argument('--input_size', default=200, type=int,
                         help='EEG input size')
+    parser.add_argument('--freeze_backbone', action='store_true', default=False,
+                        help='Freeze LaBraM backbone and train only the linear classification head (Ablation 2)')
+    parser.add_argument('--tune_top_k', type=int, default=0,
+                        help='Partially fine-tune only the top K Transformer blocks + head, freezing lower blocks (Ablation 3)')
 
     parser.add_argument('--drop', type=float, default=0.0, metavar='PCT',
                         help='Dropout rate (default: 0.)')
@@ -470,6 +474,59 @@ def main(args, ds_init):
                 checkpoint_model.pop(key)
 
         utils.load_state_dict(model, checkpoint_model, prefix=args.model_prefix)
+
+    if args.freeze_backbone:
+        print("=" * 80)
+        print("FREEZING LABRAM BACKBONE (ABLATION 2: FROZEN BACKBONE LINEAR PROBE)")
+        print("=" * 80)
+        for name, param in model.named_parameters():
+            if name.startswith("head."):
+                param.requires_grad = True
+            else:
+                param.requires_grad = False
+        trainable_names = [name for name, p in model.named_parameters() if p.requires_grad]
+        frozen_names = [name for name, p in model.named_parameters() if not p.requires_grad]
+        trainable_cnt = sum(p.numel() for p in model.parameters() if p.requires_grad)
+        frozen_cnt = sum(p.numel() for p in model.parameters() if not p.requires_grad)
+        print(f"Trainable Parameters ({trainable_cnt}): {trainable_names}")
+        print(f"Frozen Parameters ({frozen_cnt:,}): {len(frozen_names)} tensors across all Transformer blocks and embeddings")
+        assert trainable_cnt == 201, f"Expected exactly 201 trainable params, got {trainable_cnt}"
+        print("=" * 80)
+
+    elif args.tune_top_k > 0:
+        print("=" * 80)
+        print(f"ABLATION 3: PARTIAL FINE-TUNING OF TOP {args.tune_top_k} TRANSFORMER BLOCKS + HEAD")
+        print("=" * 80)
+        num_blocks = model.get_num_layers()
+        start_train_block = num_blocks - args.tune_top_k
+        top_prefixes = tuple([f"blocks.{i}." for i in range(start_train_block, num_blocks)] + ["fc_norm.", "head."])
+        
+        for name, param in model.named_parameters():
+            if any(name.startswith(pfx) for pfx in top_prefixes):
+                param.requires_grad = True
+            else:
+                param.requires_grad = False
+
+        trainable_cnt = sum(p.numel() for p in model.parameters() if p.requires_grad)
+        frozen_cnt = sum(p.numel() for p in model.parameters() if not p.requires_grad)
+        
+        # Verify lower blocks are strictly frozen
+        for i in range(start_train_block):
+            for name, param in model.named_parameters():
+                if name.startswith(f"blocks.{i}."):
+                    assert not param.requires_grad, f"Lower block parameter {name} is trainable!"
+                    
+        # Verify top blocks and head are strictly trainable
+        for i in range(start_train_block, num_blocks):
+            for name, param in model.named_parameters():
+                if name.startswith(f"blocks.{i}."):
+                    assert param.requires_grad, f"Top block parameter {name} is frozen!"
+        assert model.head.weight.requires_grad and model.head.bias.requires_grad
+
+        print(f"Total Parameters     : {sum(p.numel() for p in model.parameters()):,}")
+        print(f"Trainable Parameters : {trainable_cnt:,} (Top {args.tune_top_k} Blocks + Head)")
+        print(f"Frozen Parameters    : {frozen_cnt:,} (Lower {start_train_block} Blocks + Embeddings)")
+        print("=" * 80)
 
     model.to(device)
 

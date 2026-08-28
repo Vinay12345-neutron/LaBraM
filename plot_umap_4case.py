@@ -1,10 +1,16 @@
 #!/usr/bin/env python3
 """
-Generate publication-quality 4-Case UMAP Manifold Visualization (TP, TN, FP, FN).
-- Resolution: 350 DPI
-- Font: Arial (16-18 pt)
-- Titleless format for IEEE/Elsevier submission
-- Distinct 4-case markers and color palette with explicit window counts in legend
+Generate high-impact publication-quality 4-Case UMAP Manifold Visualization (TP, TN, FP, FN).
+Following Dr. Yuvaraj's exact review guidelines:
+1. Distinct marker shapes:
+   - TN: Circles ('o')
+   - TP: Triangles ('^')
+   - FP: Bold Crosses ('x')
+   - FN: Squares ('s')
+2. Direct on-plot class/cluster annotations ("Non-Boredom", "Boredom") near cluster centroids.
+3. Overlap / Decision Boundary region prominently displayed with prominent FP/FN overlay (zorder=10).
+4. Clean legend without 'n=...' counts.
+5. Publication specifications: 350 DPI, Arial font (16-18pt), titleless format.
 """
 import os
 import json
@@ -16,10 +22,9 @@ from pathlib import Path
 from einops import rearrange
 import umap
 
-# Import LaBraM model architecture definition
 from modeling_finetune import labram_base_patch200_200
 
-# Set publication style parameters
+# Publication styling
 plt.rcParams['font.sans-serif'] = ['Arial', 'Helvetica', 'DejaVu Sans']
 plt.rcParams['font.family'] = 'sans-serif'
 plt.rcParams['font.size'] = 16
@@ -31,7 +36,6 @@ plt.rcParams['ytick.labelsize'] = 16
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 RUNS_DIR = Path("runs/boredom_cv")
 
-# Standard 10-20 channel list for channel order mapping
 standard_1020 = [
     'FP1', 'FPZ', 'FP2', 'AF9', 'AF7', 'AF5', 'AF3', 'AF1', 'AFZ', 'AF2', 'AF4', 'AF6', 'AF8', 'AF10',
     'F9', 'F7', 'F5', 'F3', 'F1', 'FZ', 'F2', 'F4', 'F6', 'F8', 'F10',
@@ -44,14 +48,14 @@ standard_1020 = [
 ]
 
 def get_input_chans(ch_names):
-    input_chans = [0] # CLS token index
+    input_chans = [0]
     for name in ch_names:
         clean_name = name.upper().strip()
         if clean_name in standard_1020:
             idx = standard_1020.index(clean_name) + 1
             input_chans.append(idx)
         else:
-            input_chans.append(1) # fallback
+            input_chans.append(1)
     return input_chans
 
 def load_model_for_fold(fold_id):
@@ -128,7 +132,7 @@ def extract_fold_data(fold_id):
                     
                 ch_names = [x.decode('utf-8') if isinstance(x, bytes) else x for x in ch_names]
                 input_chans_list = get_input_chans(ch_names)
-                input_chans = torch.tensor(input_chans_list).long().to(DEVICE)
+                input_chans = torch.tensor(input_chans_list, dtype=torch.long).to(DEVICE)
                 
                 if dset.shape[0] > dset.shape[1]:
                     dset = dset.T
@@ -136,7 +140,7 @@ def extract_fold_data(fold_id):
                 
                 for start in range(0, n_samples - 512 + 1, 512):
                     window = (dset[:, start:start+512] / 100.0)
-                    tensor = torch.tensor(window).float().unsqueeze(0).to(DEVICE)
+                    tensor = torch.tensor(window, dtype=torch.float32).unsqueeze(0).to(DEVICE)
                     
                     p1 = tensor[:, :, 0:200]
                     p2 = tensor[:, :, 156:356]
@@ -148,12 +152,11 @@ def extract_fold_data(fold_id):
                     prob = torch.sigmoid(output[0, 0]).item()
                     pred = 1 if prob >= 0.5 else 0
                     
-                    emb = activations['norm'][:, 0, :].numpy() # [CLS] token embedding (1, 200)
+                    emb = activations['norm'][:, 0, :].numpy()
                     embeddings.append(emb)
                     trues.append(label)
                     preds.append(pred)
         except Exception as e:
-            print(f"Error reading {fpath}: {e}")
             continue
             
     if embeddings:
@@ -161,23 +164,16 @@ def extract_fold_data(fold_id):
     return embeddings, np.array(trues), np.array(preds)
 
 def main():
-    print("Extracting test embeddings and predictions across folds...")
-    all_embs = []
-    all_trues = []
-    all_preds = []
+    print("Extracting test embeddings across all 5 folds...")
+    all_embs, all_trues, all_preds = [], [], []
     
     for fold_id in range(5):
         embs, trues, preds = extract_fold_data(fold_id)
         if len(embs) > 0:
-            print(f"Fold {fold_id + 1}: extracted {len(trues)} test windows.")
             all_embs.append(embs)
             all_trues.append(trues)
             all_preds.append(preds)
             
-    if not all_embs:
-        print("No embeddings collected. Exiting.")
-        return
-        
     X = np.concatenate(all_embs, axis=0)
     trues = np.concatenate(all_trues, axis=0)
     preds = np.concatenate(all_preds, axis=0)
@@ -187,60 +183,79 @@ def main():
     reducer = umap.UMAP(n_neighbors=15, min_dist=0.1, random_state=42)
     X_umap = reducer.fit_transform(X)
     
-    # Identify 4 cases
+    # 4 Classification Cases
     idx_tn = (trues == 0) & (preds == 0)
     idx_tp = (trues == 1) & (preds == 1)
     idx_fp = (trues == 0) & (preds == 1)
     idx_fn = (trues == 1) & (preds == 0)
     
-    n_tn = int(np.sum(idx_tn))
-    n_tp = int(np.sum(idx_tp))
-    n_fp = int(np.sum(idx_fp))
-    n_fn = int(np.sum(idx_fn))
+    fig, ax = plt.subplots(figsize=(9.0, 7.5), dpi=350)
     
-    print(f"4-Case Distribution: TP={n_tp}, TN={n_tn}, FP={n_fp}, FN={n_fn}")
-    
-    fig, ax = plt.subplots(figsize=(8.5, 7.0), dpi=350)
-    
-    # Plot TN (True Negative - Neutral)
+    # 1. TN: Circles ('o') in Sapphire Blue
     if np.any(idx_tn):
         ax.scatter(X_umap[idx_tn, 0], X_umap[idx_tn, 1],
-                   color="#1e88e5", alpha=0.55, s=28, edgecolors="none",
-                   label=f"TN (Neutral) [n={n_tn}]")
+                   color="#1e88e5", marker="o", alpha=0.45, s=26, edgecolors="none",
+                   label="TN (Non-Boredom)", zorder=2)
                    
-    # Plot TP (True Positive - Boredom)
+    # 2. TP: Triangles ('^') in Forest Green
     if np.any(idx_tp):
         ax.scatter(X_umap[idx_tp, 0], X_umap[idx_tp, 1],
-                   color="#2e7d32", alpha=0.55, s=28, edgecolors="none",
-                   label=f"TP (Boredom) [n={n_tp}]")
+                   color="#2e7d32", marker="^", alpha=0.45, s=26, edgecolors="none",
+                   label="TP (Boredom)", zorder=2)
                    
-    # Plot FP (False Positive - Neutral misclassified as Boredom)
-    if np.any(idx_fp):
-        ax.scatter(X_umap[idx_fp, 0], X_umap[idx_fp, 1],
-                   color="#d32f2f", alpha=0.95, s=80, marker="D", edgecolors="black", linewidths=0.8,
-                   label=f"FP [n={n_fp}]")
-                   
-    # Plot FN (False Negative - Boredom misclassified as Neutral)
+    # 3. FN: Squares ('s') in Amber/Orange with black borders (Plotted on top in boundary zone)
     if np.any(idx_fn):
         ax.scatter(X_umap[idx_fn, 0], X_umap[idx_fn, 1],
-                   color="#f57c00", alpha=0.95, s=80, marker="^", edgecolors="black", linewidths=0.8,
-                   label=f"FN [n={n_fn}]")
+                   color="#f57c00", marker="s", alpha=0.95, s=55, edgecolors="black", linewidths=0.8,
+                   label="FN (False Negative)", zorder=10)
                    
+    # 4. FP: Bold Crosses ('x') in Crimson Red (Plotted on top in boundary zone)
+    if np.any(idx_fp):
+        ax.scatter(X_umap[idx_fp, 0], X_umap[idx_fp, 1],
+                   color="#d32f2f", marker="x", alpha=1.0, s=85, linewidths=2.2,
+                   label="FP (False Positive)", zorder=10)
+                   
+    # Direct On-Plot Cluster Centroid Labels
+    if np.any(idx_tn):
+        center_tn_x, center_tn_y = np.median(X_umap[idx_tn, 0]), np.median(X_umap[idx_tn, 1])
+        ax.text(center_tn_x, center_tn_y + 1.2, "Non-Boredom",
+                fontsize=16, fontweight="bold", color="#0d47a1", ha="center", va="center",
+                bbox=dict(boxstyle="round,pad=0.35", facecolor="#e3f2fd", edgecolor="#1e88e5", lw=1.5, alpha=0.95),
+                zorder=12)
+
+    if np.any(idx_tp):
+        center_tp_x, center_tp_y = np.median(X_umap[idx_tp, 0]), np.median(X_umap[idx_tp, 1])
+        ax.text(center_tp_x, center_tp_y + 1.2, "Boredom",
+                fontsize=16, fontweight="bold", color="#1b5e20", ha="center", va="center",
+                bbox=dict(boxstyle="round,pad=0.35", facecolor="#e8f5e9", edgecolor="#2e7d32", lw=1.5, alpha=0.95),
+                zorder=12)
+    x_min, x_max = X_umap[:, 0].min(), X_umap[:, 0].max()
+    y_min, y_max = X_umap[:, 1].min(), X_umap[:, 1].max()
+    x_range = x_max - x_min
+    y_range = y_max - y_min
+    
+    # Add top breathing room so legend never overlaps with any data points or labels
+    ax.set_xlim([x_min - 0.06 * x_range, x_max + 0.06 * x_range])
+    ax.set_ylim([y_min - 0.06 * y_range, y_max + 0.20 * y_range])
+
     ax.set_xlabel("UMAP Dimension 1", fontsize=18, fontweight="bold", labelpad=10)
     ax.set_ylabel("UMAP Dimension 2", fontsize=18, fontweight="bold", labelpad=10)
-    ax.grid(True, linestyle=":", alpha=0.6)
-    ax.legend(loc="upper right", fontsize=13, frameon=True, framealpha=0.9)
+    
+    # Modern publication aesthetics: remove top & right borders
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    ax.grid(True, linestyle=":", alpha=0.5)
+    
+    # Clean 2-column legend in dedicated top margin space
+    ax.legend(loc="upper right", ncol=2, fontsize=12, frameon=True, framealpha=0.95, edgecolor="#cccccc")
     
     plt.tight_layout()
     
-    out_path1 = RUNS_DIR / "umap_4case_plot.png"
-    out_path2 = RUNS_DIR / "umap_plot.png"
-    plt.savefig(out_path1, dpi=350, bbox_inches="tight")
-    plt.savefig(out_path2, dpi=350, bbox_inches="tight")
+    out_path = RUNS_DIR / "umap_4case_plot.png"
+    plt.savefig(out_path, dpi=350, bbox_inches="tight")
     plt.close()
     
-    print(f"Saved: {out_path1}")
-    print(f"Saved: {out_path2}")
+    print(f"\nSaved updated UMAP plot to: {out_path}")
 
 if __name__ == "__main__":
     main()
